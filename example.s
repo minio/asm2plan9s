@@ -1,1 +1,1 @@
-                                                                 // VPADDQ  XMM0,XMM1,XMM2
+                                                                 // VPADDQ  XMM0,XMM1,XMM8

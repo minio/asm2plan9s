@@ -142,16 +142,15 @@ func main() {
 	}
 
 	var result []string
-	for i, line := range lines {
+	for _, line := range lines {
 		line := strings.Replace(line, "\t", "    ", -1)
 		fields := strings.Split(line, "//")
 		if len(fields[0]) == 65 && len(fields) == 2 {
-			//fmt.Println(i + 1, fields[1])
 			sline, err := yasm(fields[1])
 			if err != nil {
 				log.Fatalf("yasm(%s): %s", line, err)
 			}
-			fmt.Println(i + 1, sline)
+			fmt.Println(sline)
 			result = append(result, sline)
 		} else {
 			result = append(result, line)
