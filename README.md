@@ -20,7 +20,7 @@ $ echo example.s
     BYTE $0xc4; BYTE $0xc1; BYTE $0x71; BYTE $0xd4; BYTE $0xc0   // VPADDQ  XMM0,XMM1,XMM8
 ```
 
-The instruction to be assembled needs to start with a `//` at position **66** precisely. The preceeding characters will be overwitten by the correct sequence (irrespective of its contents).
+The instruction to be assembled needs to start with a `//` at position **66** precisely. The preceding characters will be overwitten by the correct sequence (irrespective of its contents).
 
 Long instructions
 -----------------
