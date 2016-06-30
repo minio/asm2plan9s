@@ -106,7 +106,7 @@ func TestLongInstructionWith2ndLine(t *testing.T) {
 func TestLongInstructionWith2ndLineInDefine(t *testing.T) {
 
 	ins1 := `                                                               \ // VPALIGNR XMM8, XMM12, XMM12, 0x8`
-	ins2 := `                BYTE $0x08;                                    \`
+	ins2 := `                BYTE $0x08                                     \`
 	out1 := `    BYTE $0xc4; BYTE $0x43; BYTE $0x19; BYTE $0x0f; BYTE $0xc4 \ // VPALIGNR XMM8, XMM12, XMM12, 0x8`
 	out2 := `                BYTE $0x08                                     \`
 

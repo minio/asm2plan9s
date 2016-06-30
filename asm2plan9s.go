@@ -162,7 +162,7 @@ func assemble(lines []string) ([]string, error) {
 func filterContinuedByteSequences(lines []string) ([]string, error) {
 
 	reTwoBytes := regexp.MustCompile("[0-9a-fA-F][0-9a-fA-F]")
-	reEndsWithBackslash := regexp.MustCompile(`;\s*\\`)
+	reEndsWithBackslash := regexp.MustCompile(`\s*\\`)
 
 	var filtered []string
 
