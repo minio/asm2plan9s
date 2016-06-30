@@ -17,4 +17,42 @@ $ echo example.s
 
 The instruction to be assembled needs to start with a `//` at position **66** precisely. The preceeding characters will be overwitten by the correct sequence (irrespective of its contents).
 
-For a more extensive example see [compress_amd64.s](https://github.com/fwessels/blake2b-sse/blob/master/compress_amd64.s)
+Long instructions
+-----------------
+
+Instructions that result in more than 5 bytes are wrapped to the next line, for instance:
+
+```
+                                                                 // VPALIGNR XMM8, XMM12, XMM12, 0x8
+```
+
+will be assembled into
+
+```
+    BYTE $0xc4; BYTE $0x43; BYTE $0x19; BYTE $0x0f; BYTE $0xc4   // VPALIGNR XMM8, XMM12, XMM12, 0x8"
+                BYTE $0x08"
+```
+
+Note the additional indent for the continued line. Upon a subsequent (re)assembly of the file the extra line is automatically detected and removed.
+Also the extra line does not have to be there at first, so upon initially entering the instruction you can just start the following instruction on the next line.
+
+Support for defines
+-------------------
+
+If you are using #define for 'macros' with the back-slash delimiter to continue on the next line, this will be preserved.
+
+For instance:
+```
+                                                               \ // VPADDQ  XMM0,XMM1,XMM8
+```
+
+will be assembled into
+
+```
+    BYTE $0xc4; BYTE $0xc1; BYTE $0x71; BYTE $0xd4; BYTE $0xc0 \ // VPADDQ  XMM0,XMM1,XMM8
+```
+
+Extensive example
+-----------------
+
+For a more extensive example see [compress_amd64.s](https://github.com/minio/blake2b-simd/blob/master/compress_amd64.s)

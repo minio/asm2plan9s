@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"bufio"
 	"os"
 	"os/exec"
 	"strings"
+	"regexp"
 )
 
 //
@@ -32,26 +33,25 @@ import (
 // 00000000 <.text>:
 // 0:   c5 ed ef e3             vpxor  ymm4,ymm2,ymm3
 
-
-func yasm(instr string) (string, error) {
+func yasm(instr string, inDefine bool) ([]string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])
 	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
 	if err != nil {
-		return "", nil
+		return []string{""}, err
 	}
 
 	if _, err := tmpfile.Write(content); err != nil {
-		return "", nil
+		return []string{""}, err
 	}
 	if err := tmpfile.Close(); err != nil {
-		return "", nil
+		return []string{""}, err
 	}
 
 	asmFile := tmpfile.Name() + ".asm"
 	objFile := tmpfile.Name() + ".obj"
-	os.Rename( tmpfile.Name(), asmFile)
+	os.Rename(tmpfile.Name(), asmFile)
 
 	defer os.Remove(asmFile) // clean up
 	defer os.Remove(objFile) // clean up
@@ -64,35 +64,142 @@ func yasm(instr string) (string, error) {
 
 	cmd := exec.Command(app, arg0, arg1, arg2)
 	_, err = cmd.Output()
-
 	if err != nil {
-		return "", nil
+		return []string{""}, err
 	}
 
-	return toPlan9s(objFile, instr)
+	return toPlan9s(objFile, instr, inDefine)
 }
 
-func toPlan9s(objFile, instr string) (string, error) {
+func toPlan9s(objFile, instr string, inDefine bool) ([]string, error) {
 	objcode, err := ioutil.ReadFile(objFile)
 	if err != nil {
-		return "", err
+		return []string{""}, err
 	}
 
 	sline := "    "
-	for i, b := range objcode {
+	var i int
+	var b byte
+	for i, b = range objcode {
 		if i != 0 {
 			sline += "; "
 		}
+
 		sline += fmt.Sprintf("BYTE $0x%02x", b)
+
+		if i == 4 {
+			break
+		}
 	}
 
-	if len(sline) < 65 {
-		sline += strings.Repeat(" ", 65 - len(sline))
+	if inDefine {
+		sline += strings.Repeat(" ", 63-len(sline))
+		sline += `\ `
+	} else {
+		sline += strings.Repeat(" ", 65-len(sline))
 	}
 
 	sline += "//" + instr
 
-	return sline, nil
+	if i < len(objcode)-1 {
+		slineCtnd := "    "
+		slineCtnd += "            " // additional indent for first code
+		j := i + 1                  // current byte already output
+		for ; j < len(objcode); j++ {
+			if j != i+1 {
+				sline += "; "
+			}
+
+			slineCtnd += fmt.Sprintf("BYTE $0x%02x", objcode[j])
+		}
+
+		return []string{sline, slineCtnd}, nil
+	}
+
+	return []string{sline}, nil
+}
+
+// assemble assembles an array to lines into their
+// resulting plan9 equivalent
+func assemble(lines []string) ([]string, error) {
+
+	var result []string
+
+	lines, err := filterContinuedByteSequences(lines)
+	if err != nil {
+		return result, err
+	}
+
+	for _, line := range lines {
+		line := strings.Replace(line, "\t", "    ", -1)
+		fields := strings.Split(line, "//")
+		if len(fields[0]) == 65 && len(fields) == 2 {
+
+			// test whether string before instruction is terminated with a backslash (so used in a #define)
+			trimmed := strings.TrimSpace(fields[0])
+			inDefine := len(trimmed) > 0 && string(trimmed[len(trimmed)-1]) == `\`
+
+			sline, err := yasm(fields[1], inDefine)
+			if err != nil {
+				return result, err
+			}
+			result = append(result, sline...)
+		} else {
+			result = append(result, line)
+		}
+	}
+
+	return result, nil
+}
+
+// filterContinuedByteSequences filters out (on next line) continued BYTE
+// sequences (for instructions that result in longer than 5 opcodes
+func filterContinuedByteSequences(lines []string) ([]string, error) {
+
+	reTwoBytes := regexp.MustCompile("[0-9a-fA-F][0-9a-fA-F]")
+
+	var filtered []string
+
+	for _, line := range lines {
+
+		// check prefix
+		prefix := "                BYTE $0x"
+		lineHexBytes := strings.HasPrefix(line, prefix)
+
+		if lineHexBytes {
+			l := strings.TrimSpace(line[len(prefix):])
+
+			for ; len(l) > 0; {
+
+				// check two hex characters
+				lineHexBytes = reTwoBytes.FindString(l) != ""
+				if !lineHexBytes {
+					break
+				}
+
+				// skip and check if done
+				l = l[2:len(l)]
+				if len(l) == 0 {
+					break
+				}
+
+				// test for string between hex codes
+				interfix := "; BYTE $0x"
+				lineHexBytes = strings.HasPrefix(l, interfix)
+				if !lineHexBytes {
+					break
+				}
+
+				// skip string inbetween to next hex
+				l = l[len(interfix):]
+			}
+		}
+
+		if !lineHexBytes {
+			filtered = append(filtered, line)
+		}
+	}
+	return filtered, nil
 }
 
 // readLines reads a whole file into memory
@@ -141,20 +248,9 @@ func main() {
 		log.Fatalf("readLines: %s", err)
 	}
 
-	var result []string
-	for _, line := range lines {
-		line := strings.Replace(line, "\t", "    ", -1)
-		fields := strings.Split(line, "//")
-		if len(fields[0]) == 65 && len(fields) == 2 {
-			sline, err := yasm(fields[1])
-			if err != nil {
-				log.Fatalf("yasm(%s): %s", line, err)
-			}
-			fmt.Println(sline)
-			result = append(result, sline)
-		} else {
-			result = append(result, line)
-		}
+	result, err := assemble(lines)
+	if err != nil {
+		log.Fatalf("assemble: %s", err)
 	}
 
 	err = writeLines(result, os.Args[1])
