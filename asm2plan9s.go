@@ -113,6 +113,11 @@ func toPlan9s(objFile, instr string, inDefine bool) ([]string, error) {
 			slineCtnd += fmt.Sprintf("BYTE $0x%02x", objcode[j])
 		}
 
+		if inDefine {
+			slineCtnd += strings.Repeat(" ", 63-len(slineCtnd))
+			slineCtnd += `\`
+		}
+
 		return []string{sline, slineCtnd}, nil
 	}
 
@@ -157,6 +162,7 @@ func assemble(lines []string) ([]string, error) {
 func filterContinuedByteSequences(lines []string) ([]string, error) {
 
 	reTwoBytes := regexp.MustCompile("[0-9a-fA-F][0-9a-fA-F]")
+	reEndsWithBackslash := regexp.MustCompile(`;\s*\\`)
 
 	var filtered []string
 
@@ -187,6 +193,8 @@ func filterContinuedByteSequences(lines []string) ([]string, error) {
 				interfix := "; BYTE $0x"
 				lineHexBytes = strings.HasPrefix(l, interfix)
 				if !lineHexBytes {
+					// No more bytes, do one more check before breaking out if the statement ends with a delimiter
+					lineHexBytes = reEndsWithBackslash.FindString(l) != ""
 					break
 				}
 
