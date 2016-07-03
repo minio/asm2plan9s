@@ -107,7 +107,7 @@ func toPlan9s(objFile, instr string, inDefine bool) ([]string, error) {
 		j := i + 1                  // current byte already output
 		for ; j < len(objcode); j++ {
 			if j != i+1 {
-				sline += "; "
+				slineCtnd += "; "
 			}
 
 			slineCtnd += fmt.Sprintf("BYTE $0x%02x", objcode[j])
