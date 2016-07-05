@@ -60,4 +60,4 @@ will be assembled into
 Extensive example
 -----------------
 
-For a more extensive example see [compress_amd64.s](https://github.com/minio/blake2b-simd/blob/master/compress_amd64.s)
+For a more extensive example see [compressAvx_amd64.s](https://github.com/minio/blake2b-simd/blob/master/compressAvx_amd64.s)
