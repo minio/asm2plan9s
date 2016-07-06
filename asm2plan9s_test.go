@@ -102,7 +102,6 @@ func TestLongInstructionWith2ndLine(t *testing.T) {
 
 }
 
-
 func TestLongInstructionWith2ndLineInDefine(t *testing.T) {
 
 	ins1 := `                                                               \ // VPALIGNR XMM8, XMM12, XMM12, 0x8`
