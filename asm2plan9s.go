@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 )
 
@@ -34,20 +33,20 @@ import (
 // 00000000 <.text>:
 // 0:   c5 ed ef e3             vpxor  ymm4,ymm2,ymm3
 
-func yasm(instr string, lineno, commentPos int, inDefine bool) ([]string, error) {
+func yasm(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])
 	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
 	if err != nil {
-		return []string{""}, err
+		return "", err
 	}
 
 	if _, err := tmpfile.Write(content); err != nil {
-		return []string{""}, err
+		return "", err
 	}
 	if err := tmpfile.Close(); err != nil {
-		return []string{""}, err
+		return "", err
 	}
 
 	asmFile := tmpfile.Name() + ".asm"
@@ -68,31 +67,51 @@ func yasm(instr string, lineno, commentPos int, inDefine bool) ([]string, error)
 	if err != nil {
 		yasmErrs := strings.Split(string(cmb)[len(asmFile)+1:], ":")
 		yasmErr := strings.Join(yasmErrs[1:], ":")
-		return []string{""}, errors.New(fmt.Sprintf("YASM error (around line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
+		return "", errors.New(fmt.Sprintf("YASM error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
 	}
 
 	return toPlan9s(objFile, instr, commentPos, inDefine)
 }
 
-func toPlan9s(objFile, instr string, commentPos int, inDefine bool) ([]string, error) {
+func toPlan9s(objFile, instr string, commentPos int, inDefine bool) (string, error) {
 	objcode, err := ioutil.ReadFile(objFile)
 	if err != nil {
-		return []string{""}, err
+		return "", err
 	}
 
 	sline := "    "
-	var i int
-	var b byte
-	for i, b = range objcode {
+	i := 0
+	// First do LONGs (as many as needed)
+	for ; len(objcode) >= 4; i++ {
 		if i != 0 {
 			sline += "; "
 		}
+		sline += fmt.Sprintf("LONG $0x%02x%02x%02x%02x", objcode[3], objcode[2], objcode[1], objcode[0])
 
-		sline += fmt.Sprintf("BYTE $0x%02x", b)
+		objcode = objcode[4:]
+	}
 
-		if i == 4 {
-			break
+	// Then do a WORD (if needed)
+	if len(objcode) >= 2 {
+
+		if i != 0 {
+			sline += "; "
 		}
+		sline += fmt.Sprintf("WORD $0x%02x%02x", objcode[1], objcode[0])
+
+		i++
+		objcode = objcode[2:]
+	}
+
+	// And close with a BYTE (if needed)
+	if len(objcode) == 1 {
+		if i != 0 {
+			sline += "; "
+		}
+		sline += fmt.Sprintf("BYTE $0x%02x", objcode[0])
+
+		i++
+		objcode = objcode[1:]
 	}
 
 	if inDefine {
@@ -112,27 +131,7 @@ func toPlan9s(objFile, instr string, commentPos int, inDefine bool) ([]string, e
 
 	sline += "//" + instr
 
-	if i < len(objcode)-1 {
-		slineCtnd := "    "
-		slineCtnd += "            " // additional indent for first code
-		j := i + 1                  // current byte already output
-		for ; j < len(objcode); j++ {
-			if j != i+1 {
-				slineCtnd += "; "
-			}
-
-			slineCtnd += fmt.Sprintf("BYTE $0x%02x", objcode[j])
-		}
-
-		if inDefine {
-			slineCtnd += strings.Repeat(" ", commentPos-2-len(slineCtnd))
-			slineCtnd += `\`
-		}
-
-		return []string{sline, slineCtnd}, nil
-	}
-
-	return []string{sline}, nil
+	return sline, nil
 }
 
 // assemble assembles an array to lines into their
@@ -141,17 +140,11 @@ func assemble(lines []string) ([]string, error) {
 
 	var result []string
 
-	lines, err := filterContinuedByteSequences(lines)
-	if err != nil {
-		return result, err
-	}
-
 	for lineno, line := range lines {
 		startsWithTab := strings.HasPrefix(line, "\t")
 		line := strings.Replace(line, "\t", "    ", -1)
 		fields := strings.Split(line, "//")
-		if len(fields) == 2 &&
-			len(fields[0]) >= 39 && ((len(fields[0])-39)%12 == 0 || (len(fields[0])-39)%12 == 2) {
+		if len(fields) == 2 && (startsAfterLongWordByteSequence(fields[0]) || len(fields[0]) == 65) {
 
 			// test whether string before instruction is terminated with a backslash (so used in a #define)
 			trimmed := strings.TrimSpace(fields[0])
@@ -161,12 +154,10 @@ func assemble(lines []string) ([]string, error) {
 			if err != nil {
 				return result, err
 			}
-			for _, sl := range sline {
-				if startsWithTab {
-					sl = strings.Replace(sl, "    ", "\t", 1)
-				}
-				result = append(result, sl)
+			if startsWithTab {
+				sline = strings.Replace(sline, "    ", "\t", 1)
 			}
+			result = append(result, sline)
 		} else {
 			if startsWithTab {
 				line = strings.Replace(line, "    ", "\t", 1)
@@ -178,59 +169,41 @@ func assemble(lines []string) ([]string, error) {
 	return result, nil
 }
 
-// filterContinuedByteSequences filters out (on next line) continued BYTE
-// sequences (for instructions that result in more than 5 opcodes)
-func filterContinuedByteSequences(lines []string) ([]string, error) {
+// startsAfterLongWordByteSequence determines if an assembly instruction
+// starts on a position after a combination of LONG, WORD, BYTE sequences
+func startsAfterLongWordByteSequence(prefix string) bool {
 
-	reTwoBytes := regexp.MustCompile("[0-9a-fA-F][0-9a-fA-F]")
-	reEndsWithBackslash := regexp.MustCompile(`\s*\\`)
+	if len(strings.TrimSpace(prefix)) != 0 && !strings.HasPrefix(prefix, "    LONG $0x") &&
+		!strings.HasPrefix(prefix, "    WORD $0x") && !strings.HasPrefix(prefix, "    BYTE $0x") {
+		return false
+	}
 
-	var filtered []string
+	length := 4 + len(prefix) + 1
 
-	for _, lineOrg := range lines {
+	for objcodes := 3; objcodes <= 8; objcodes++ {
 
-		line := strings.Replace(lineOrg, "\t", "    ", -1)
+		ls, ws, bs := 0, 0, 0
 
-		// check prefix
-		prefix := "                BYTE $0x"
-		lineHexBytes := strings.HasPrefix(line, prefix)
+		oc := objcodes
 
-		if lineHexBytes {
-			l := strings.TrimSpace(line[len(prefix):])
-
-			for len(l) > 0 {
-
-				// check two hex characters
-				lineHexBytes = reTwoBytes.FindString(l) != ""
-				if !lineHexBytes {
-					break
-				}
-
-				// skip and check if done
-				l = l[2:len(l)]
-				if len(l) == 0 {
-					break
-				}
-
-				// test for string between hex codes
-				interfix := "; BYTE $0x"
-				lineHexBytes = strings.HasPrefix(l, interfix)
-				if !lineHexBytes {
-					// No more bytes, do one more check before breaking out if the statement ends with a delimiter
-					lineHexBytes = reEndsWithBackslash.FindString(l) != ""
-					break
-				}
-
-				// skip string inbetween to next hex
-				l = l[len(interfix):]
-			}
+		for ; oc >= 4; oc -= 4 {
+			ls++
 		}
+		if oc >= 2 {
+			ws++
+			oc -= 2
+		}
+		if oc == 1 {
+			bs++
+		}
+		size := 4 + ls*(len("LONG $0x")+8) + ws*(len("WORD $0x")+4) + bs*(len("BYTE $0x")+2) + (ls+ws+bs-1)*len("; ")
 
-		if !lineHexBytes {
-			filtered = append(filtered, lineOrg)
+		if length == size+2 || // comment starts after a space
+			length == size+4 { // comment starts after a space, bash slash and another space
+			return true
 		}
 	}
-	return filtered, nil
+	return false
 }
 
 // readLines reads a whole file into memory
