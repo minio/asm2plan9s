@@ -139,6 +139,7 @@ func assemble(lines []string) ([]string, error) {
 	}
 
 	for lineno, line := range lines {
+		startsWithTab := strings.HasPrefix(line, "\t")
 		line := strings.Replace(line, "\t", "    ", -1)
 		fields := strings.Split(line, "//")
 		if len(fields[0]) == 65 && len(fields) == 2 {
@@ -151,8 +152,16 @@ func assemble(lines []string) ([]string, error) {
 			if err != nil {
 				return result, err
 			}
-			result = append(result, sline...)
+			for _, sl := range sline {
+				if startsWithTab {
+					sl = strings.Replace(sl, "    ", "\t", 1)
+				}
+				result = append(result, sl)
+			}
 		} else {
+			if startsWithTab {
+				line = strings.Replace(line, "    ", "\t", 1)
+			}
 			result = append(result, line)
 		}
 	}
