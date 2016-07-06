@@ -34,7 +34,7 @@ import (
 // 00000000 <.text>:
 // 0:   c5 ed ef e3             vpxor  ymm4,ymm2,ymm3
 
-func yasm(instr string, lineno int, inDefine bool) ([]string, error) {
+func yasm(instr string, lineno, commentPos int, inDefine bool) ([]string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])
@@ -71,10 +71,10 @@ func yasm(instr string, lineno int, inDefine bool) ([]string, error) {
 		return []string{""}, errors.New(fmt.Sprintf("YASM error (around line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
 	}
 
-	return toPlan9s(objFile, instr, inDefine)
+	return toPlan9s(objFile, instr, commentPos, inDefine)
 }
 
-func toPlan9s(objFile, instr string, inDefine bool) ([]string, error) {
+func toPlan9s(objFile, instr string, commentPos int, inDefine bool) ([]string, error) {
 	objcode, err := ioutil.ReadFile(objFile)
 	if err != nil {
 		return []string{""}, err
@@ -96,10 +96,18 @@ func toPlan9s(objFile, instr string, inDefine bool) ([]string, error) {
 	}
 
 	if inDefine {
-		sline += strings.Repeat(" ", 63-len(sline))
+		if commentPos > commentPos-2-len(sline) {
+			sline += strings.Repeat(" ", commentPos-2-len(sline))
+		} else {
+			sline += " "
+		}
 		sline += `\ `
 	} else {
-		sline += strings.Repeat(" ", 65-len(sline))
+		if commentPos > len(sline) {
+			sline += strings.Repeat(" ", commentPos-len(sline))
+		} else {
+			sline += " "
+		}
 	}
 
 	sline += "//" + instr
@@ -117,7 +125,7 @@ func toPlan9s(objFile, instr string, inDefine bool) ([]string, error) {
 		}
 
 		if inDefine {
-			slineCtnd += strings.Repeat(" ", 63-len(slineCtnd))
+			slineCtnd += strings.Repeat(" ", commentPos-2-len(slineCtnd))
 			slineCtnd += `\`
 		}
 
@@ -142,13 +150,14 @@ func assemble(lines []string) ([]string, error) {
 		startsWithTab := strings.HasPrefix(line, "\t")
 		line := strings.Replace(line, "\t", "    ", -1)
 		fields := strings.Split(line, "//")
-		if len(fields[0]) == 65 && len(fields) == 2 {
+		if len(fields) == 2 &&
+			len(fields[0]) >= 39 && ((len(fields[0])-39)%12 == 0 || (len(fields[0])-39)%12 == 2) {
 
 			// test whether string before instruction is terminated with a backslash (so used in a #define)
 			trimmed := strings.TrimSpace(fields[0])
 			inDefine := len(trimmed) > 0 && string(trimmed[len(trimmed)-1]) == `\`
 
-			sline, err := yasm(fields[1], lineno, inDefine)
+			sline, err := yasm(fields[1], lineno, len(fields[0]), inDefine)
 			if err != nil {
 				return result, err
 			}
@@ -170,7 +179,7 @@ func assemble(lines []string) ([]string, error) {
 }
 
 // filterContinuedByteSequences filters out (on next line) continued BYTE
-// sequences (for instructions that result in longer than 5 opcodes
+// sequences (for instructions that result in more than 5 opcodes)
 func filterContinuedByteSequences(lines []string) ([]string, error) {
 
 	reTwoBytes := regexp.MustCompile("[0-9a-fA-F][0-9a-fA-F]")
@@ -178,7 +187,9 @@ func filterContinuedByteSequences(lines []string) ([]string, error) {
 
 	var filtered []string
 
-	for _, line := range lines {
+	for _, lineOrg := range lines {
+
+		line := strings.Replace(lineOrg, "\t", "    ", -1)
 
 		// check prefix
 		prefix := "                BYTE $0x"
@@ -216,7 +227,7 @@ func filterContinuedByteSequences(lines []string) ([]string, error) {
 		}
 
 		if !lineHexBytes {
-			filtered = append(filtered, line)
+			filtered = append(filtered, lineOrg)
 		}
 	}
 	return filtered, nil
