@@ -45,6 +45,12 @@ will be assembled into
     LONG $0xd471c1c4; BYTE $0xc0 \ // VPADDQ  XMM0,XMM1,XMM8
 ```
 
+asmfmt
+------
+
+asm2plan9s works nicely together with [asmfmt](https://github.com/klauspost/asmfmt) in order to format the assembly code (in a similar style to `go fmt`). 
+
+
 Extensive example
 -----------------
 
