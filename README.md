@@ -27,7 +27,7 @@ Starting position of instruction
 --------------------------------
 
 The starting position of the `//` comment needs to follow the (imaginary) sequence with either a single space or a space followed by a back slash plus another space (see support for defines below).
-Upon first entering an instruction you can type eg `LONG $0x00000000 // VZEROUPPER` to trigger the assembler. 
+Upon first entering an instruction you can type eg `LONG $0x00000000; BYTE $0x00 // VZEROUPPER` to trigger the assembler. 
 
 Support for defines
 -------------------
