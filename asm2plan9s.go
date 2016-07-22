@@ -116,14 +116,18 @@ func toPlan9s(objFile, instr string, commentPos int, inDefine bool) (string, err
 
 	if inDefine {
 		if commentPos > commentPos-2-len(sline) {
-			sline += strings.Repeat(" ", commentPos-2-len(sline))
+			if commentPos-2-len(sline) > 0 {
+				sline += strings.Repeat(" ", commentPos-2-len(sline))
+			}
 		} else {
 			sline += " "
 		}
 		sline += `\ `
 	} else {
 		if commentPos > len(sline) {
-			sline += strings.Repeat(" ", commentPos-len(sline))
+			if commentPos-len(sline) > 1 {
+				sline += strings.Repeat(" ", commentPos-len(sline))
+			}
 		} else {
 			sline += " "
 		}
