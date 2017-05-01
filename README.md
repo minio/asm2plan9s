@@ -55,3 +55,13 @@ Extensive example
 -----------------
 
 For a more extensive example see [compressAvx_amd64.s](https://github.com/minio/blake2b-simd/blob/master/compressAvx_amd64.s)
+
+License
+-------
+
+Released under the Apache License v2.0. You can find the complete text in the file LICENSE.
+
+Contributing
+------------
+
+Contributions are welcome, please send PRs for any enhancements.
