@@ -28,6 +28,18 @@ import (
 	"strings"
 )
 
+// as: assemble instruction by either invoking yasm or gas
+func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+
+	// First to yasm (will return error when not installed)
+	s, e := yasm(instr, lineno, commentPos, inDefine)
+	if e == nil {
+		return s, e
+	}
+	// Try gas if yasm not installed
+	return gas(instr, lineno, commentPos, inDefine)
+}
+
 // See below for YASM support (older, no AVX512)
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -51,7 +63,7 @@ import (
 // 3      DBC2
 //
 
-func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func gas(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte(instrFields[0] + "\n")
@@ -230,7 +242,7 @@ func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (stri
 // 0:   c5 ed ef e3             vpxor  ymm4,ymm2,ymm3
 
 // Rename to "as" for YASM support
-func yasm_as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func yasm(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])
