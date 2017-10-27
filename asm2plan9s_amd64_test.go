@@ -17,6 +17,8 @@
 package main
 
 import (
+	"io/ioutil"
+	"os"
 	"testing"
 )
 
@@ -30,7 +32,6 @@ func TestInstruction(t *testing.T) {
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
 	}
-
 }
 
 func TestInstructionPresent(t *testing.T) {
@@ -43,7 +44,6 @@ func TestInstructionPresent(t *testing.T) {
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
 	}
-
 }
 
 func TestInstructionWrongBytes(t *testing.T) {
@@ -56,7 +56,6 @@ func TestInstructionWrongBytes(t *testing.T) {
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
 	}
-
 }
 
 func TestInstructionInDefine(t *testing.T) {
@@ -69,7 +68,6 @@ func TestInstructionInDefine(t *testing.T) {
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
 	}
-
 }
 
 func TestLongInstruction(t *testing.T) {
@@ -81,5 +79,33 @@ func TestLongInstruction(t *testing.T) {
 
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
+	}
+}
+
+func TestToPlan9sGas(t *testing.T) {
+
+	ins := `GAS LISTING /tmp/asm2plan9s337889267.asm                        page 1
+   1                    .intel_syntax noprefix
+   2 0000 62D1F548       VPADDQ  ZMM0,ZMM1,ZMM8
+   2      D4C0
+   3              `
+	out := `    LONG $0x48f5d162; WORD $0xc0d4 // VPADDQ  ZMM0,ZMM1,ZMM8`
+
+	tmpfile, err := ioutil.TempFile("", "test")
+	if err != nil {
+		return
+	}
+
+	if _, err := tmpfile.Write([]byte(ins)); err != nil {
+		return
+	}
+	if err := tmpfile.Close(); err != nil {
+		return
+	}
+	defer os.Remove(tmpfile.Name()) // clean up
+
+	result, _ := toPlan9sGas(tmpfile.Name(), " VPADDQ  ZMM0,ZMM1,ZMM8", 0, false)
+	if result != out {
+		t.Errorf("expected %s\ngot                     %s", out, result)
 	}
 }

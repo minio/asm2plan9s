@@ -17,11 +17,14 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -57,7 +60,7 @@ func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 		return "", err
 	}
 
-	if _, err := tmpfile.Write(content); err != nil {
+	if _, err := tmpfile.Write([]byte(fmt.Sprintf(".intel_syntax noprefix\n%s\n", content))); err != nil {
 		return "", err
 	}
 	if err := tmpfile.Close(); err != nil {
@@ -92,9 +95,110 @@ func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 	return toPlan9sGas(lisFile, instr, commentPos, inDefine)
 }
 
-func toPlan9sGas(objFile, instr string, commentPos int, inDefine bool) (string, error) {
+func toPlan9sGas(listFile, instr string, commentPos int, inDefine bool) (string, error) {
 
-	return "", nil
+	outputLines, err := readLines(listFile)
+	if err != nil {
+		return "", err
+	}
+
+	var regexpHeader = regexp.MustCompile(`^\s+(\d+)\s+\d+\s+([0-9a-fA-F]+)`)
+	var regexpSequel = regexp.MustCompile(`^\s+(\d+)\s+([0-9a-fA-F]+)`)
+
+	lineno := -1
+
+	opcodes := make([]byte, 0, 10)
+
+	for _, line := range outputLines[2 : len(outputLines)-1] {
+
+		if match := regexpHeader.FindStringSubmatch(line); len(match) > 2 {
+			l, e := strconv.Atoi(match[1])
+			if e != nil {
+				panic(e)
+			}
+			lineno = l
+			b, e := hex.DecodeString(match[2])
+			if e != nil {
+				panic(e)
+			}
+			opcodes = append(opcodes, b...)
+		} else if match := regexpSequel.FindStringSubmatch(line); len(match) > 2 {
+			l, e := strconv.Atoi(match[1])
+			if e != nil {
+				panic(e)
+			}
+			if l != lineno {
+				panic("bad line number)")
+			}
+			b, e := hex.DecodeString(match[2])
+			if e != nil {
+				panic(e)
+			}
+			opcodes = append(opcodes, b...)
+		}
+	}
+
+	return toPlan9s(opcodes, instr, commentPos, inDefine)
+}
+
+func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (string, error) {
+	sline := "    "
+	i := 0
+	// First do LONGs (as many as needed)
+	for ; len(opcodes) >= 4; i++ {
+		if i != 0 {
+			sline += "; "
+		}
+		sline += fmt.Sprintf("LONG $0x%02x%02x%02x%02x", opcodes[3], opcodes[2], opcodes[1], opcodes[0])
+
+		opcodes = opcodes[4:]
+	}
+
+	// Then do a WORD (if needed)
+	if len(opcodes) >= 2 {
+
+		if i != 0 {
+			sline += "; "
+		}
+		sline += fmt.Sprintf("WORD $0x%02x%02x", opcodes[1], opcodes[0])
+
+		i++
+		opcodes = opcodes[2:]
+	}
+
+	// And close with a BYTE (if needed)
+	if len(opcodes) == 1 {
+		if i != 0 {
+			sline += "; "
+		}
+		sline += fmt.Sprintf("BYTE $0x%02x", opcodes[0])
+
+		i++
+		opcodes = opcodes[1:]
+	}
+
+	if inDefine {
+		if commentPos > commentPos-2-len(sline) {
+			if commentPos-2-len(sline) > 0 {
+				sline += strings.Repeat(" ", commentPos-2-len(sline))
+			}
+		} else {
+			sline += " "
+		}
+		sline += `\ `
+	} else {
+		if commentPos > len(sline) {
+			if commentPos-len(sline) > 0 {
+				sline += strings.Repeat(" ", commentPos-len(sline))
+			}
+		} else {
+			sline += " "
+		}
+	}
+
+	sline += "//" + instr
+
+	return sline, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -167,66 +271,10 @@ func yasm_as(instr string, lineno, commentPos int, inDefine bool) (string, error
 }
 
 func toPlan9sYasm(objFile, instr string, commentPos int, inDefine bool) (string, error) {
-	objcode, err := ioutil.ReadFile(objFile)
+	opcodes, err := ioutil.ReadFile(objFile)
 	if err != nil {
 		return "", err
 	}
 
-	sline := "    "
-	i := 0
-	// First do LONGs (as many as needed)
-	for ; len(objcode) >= 4; i++ {
-		if i != 0 {
-			sline += "; "
-		}
-		sline += fmt.Sprintf("LONG $0x%02x%02x%02x%02x", objcode[3], objcode[2], objcode[1], objcode[0])
-
-		objcode = objcode[4:]
-	}
-
-	// Then do a WORD (if needed)
-	if len(objcode) >= 2 {
-
-		if i != 0 {
-			sline += "; "
-		}
-		sline += fmt.Sprintf("WORD $0x%02x%02x", objcode[1], objcode[0])
-
-		i++
-		objcode = objcode[2:]
-	}
-
-	// And close with a BYTE (if needed)
-	if len(objcode) == 1 {
-		if i != 0 {
-			sline += "; "
-		}
-		sline += fmt.Sprintf("BYTE $0x%02x", objcode[0])
-
-		i++
-		objcode = objcode[1:]
-	}
-
-	if inDefine {
-		if commentPos > commentPos-2-len(sline) {
-			if commentPos-2-len(sline) > 0 {
-				sline += strings.Repeat(" ", commentPos-2-len(sline))
-			}
-		} else {
-			sline += " "
-		}
-		sline += `\ `
-	} else {
-		if commentPos > len(sline) {
-			if commentPos-len(sline) > 0 {
-				sline += strings.Repeat(" ", commentPos-len(sline))
-			}
-		} else {
-			sline += " "
-		}
-	}
-
-	sline += "//" + instr
-
-	return sline, nil
+	return toPlan9s(opcodes, instr, commentPos, inDefine)
 }
