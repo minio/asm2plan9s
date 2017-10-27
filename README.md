@@ -28,7 +28,7 @@ Run yasm --license for licensing overview and summary.
 
 ### asm2plan9s
 
- `go get -u github.com/minio/asm2plan9s`.
+ `go get -u github.com/minio/asm2plan9s`
 
 ### AVX512 support
 
