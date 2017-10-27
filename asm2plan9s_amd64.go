@@ -66,6 +66,9 @@ func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 func gas(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	instrFields := strings.Split(instr, "/*")
+	if len(instrFields) == 1 {
+		instrFields = strings.Split(instr, ";") // try again with ; separator
+	}
 	content := []byte(instrFields[0] + "\n")
 	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
 	if err != nil {
