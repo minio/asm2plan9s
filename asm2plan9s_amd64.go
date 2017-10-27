@@ -25,6 +25,84 @@ import (
 	"strings"
 )
 
+// See below for YASM support (older, no AVX512)
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// G A S   S U P P O R T
+//
+///////////////////////////////////////////////////////////////////////////////
+
+//
+// frank@hemelmeer: asm2plan9s$ more example.s
+// .intel_syntax noprefix
+//
+//     VPANDQ   ZMM0, ZMM1, ZMM2
+//
+// frank@hemelmeer: asm2plan9s$ as -o example.o -al=example.lis example.s
+// frank@hemelmeer: asm2plan9s$ more example.lis
+// GAS LISTING example.s                   page 1
+// 1                    .intel_syntax noprefix
+// 2
+// 3 0000 62F1F548          VPANDQ   ZMM0, ZMM1, ZMM2
+// 3      DBC2
+//
+
+func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+
+	instrFields := strings.Split(instr, "/*")
+	content := []byte(instrFields[0] + "\n")
+	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := tmpfile.Write(content); err != nil {
+		return "", err
+	}
+	if err := tmpfile.Close(); err != nil {
+		return "", err
+	}
+
+	asmFile := tmpfile.Name() + ".asm"
+	lisFile := tmpfile.Name() + ".lis"
+	objFile := tmpfile.Name() + ".obj"
+	os.Rename(tmpfile.Name(), asmFile)
+
+	defer os.Remove(asmFile) // clean up
+	defer os.Remove(lisFile) // clean up
+	defer os.Remove(objFile) // clean up
+
+	// as -o example.o -al=example.lis example.s
+	app := "as"
+
+	arg0 := "-o"
+	arg1 := objFile
+	arg2 := fmt.Sprintf("-al=%s", lisFile)
+	arg3 := asmFile
+
+	cmd := exec.Command(app, arg0, arg1, arg2, arg3)
+	cmb, err := cmd.CombinedOutput()
+	if err != nil {
+		asmErrs := strings.Split(string(cmb)[len(asmFile)+1:], ":")
+		asmErr := strings.Join(asmErrs[1:], ":")
+		return "", errors.New(fmt.Sprintf("GAS error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + asmErr)
+	}
+
+	return toPlan9sGas(lisFile, instr, commentPos, inDefine)
+}
+
+func toPlan9sGas(objFile, instr string, commentPos int, inDefine bool) (string, error) {
+
+	return "", nil
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Y A S M   S U P P O R T
+//
+///////////////////////////////////////////////////////////////////////////////
+
 //
 // yasm-assemble-disassemble-roundtrip-sse.txt
 //
@@ -47,7 +125,8 @@ import (
 // 00000000 <.text>:
 // 0:   c5 ed ef e3             vpxor  ymm4,ymm2,ymm3
 
-func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+// Rename to "as" for YASM support
+func yasm_as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])
@@ -84,10 +163,10 @@ func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 		return "", errors.New(fmt.Sprintf("YASM error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
 	}
 
-	return toPlan9s(objFile, instr, commentPos, inDefine)
+	return toPlan9sYasm(objFile, instr, commentPos, inDefine)
 }
 
-func toPlan9s(objFile, instr string, commentPos int, inDefine bool) (string, error) {
+func toPlan9sYasm(objFile, instr string, commentPos int, inDefine bool) (string, error) {
 	objcode, err := ioutil.ReadFile(objFile)
 	if err != nil {
 		return "", err
