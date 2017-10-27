@@ -277,6 +277,9 @@ func yasm(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 	cmd := exec.Command(app, arg0, arg1, arg2)
 	cmb, err := cmd.CombinedOutput()
 	if err != nil {
+		if len(string(cmb)) == 0 { // command invocation failed
+			return "", errors.New("exec error: YASM not installed?")
+		}
 		yasmErrs := strings.Split(string(cmb)[len(asmFile)+1:], ":")
 		yasmErr := strings.Join(yasmErrs[1:], ":")
 		return "", errors.New(fmt.Sprintf("YASM error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
