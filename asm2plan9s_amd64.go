@@ -112,7 +112,7 @@ func gas(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 func toPlan9sGas(listFile, instr string, commentPos int, inDefine bool) (string, error) {
 
-	outputLines, err := readLines(listFile)
+	outputLines, err := readLines(listFile, nil)
 	if err != nil {
 		return "", err
 	}
