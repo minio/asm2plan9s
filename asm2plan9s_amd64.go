@@ -29,15 +29,15 @@ import (
 )
 
 // as: assemble instruction by either invoking yasm or gas
-func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func as(instructions []Instruction) error {
 
 	// First to yasm (will return error when not installed)
-	s, e := yasm(instr, lineno, commentPos, inDefine)
+	e := yasm(instructions)
 	if e == nil {
-		return s, e
+		return e
 	}
 	// Try gas if yasm not installed
-	return gas(instr, lineno, commentPos, inDefine)
+	return gas(instructions)
 }
 
 // See below for YASM support (older, no AVX512)
@@ -63,23 +63,30 @@ func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 // 3      DBC2
 //
 
-func gas(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func gas(instructions []Instruction) error {
 
-	instrFields := strings.Split(instr, "/*")
-	if len(instrFields) == 1 {
-		instrFields = strings.Split(instr, ";") // try again with ; separator
-	}
-	content := []byte(instrFields[0] + "\n")
 	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
 	if err != nil {
-		return "", err
+		return err
+	}
+	if _, err := tmpfile.Write([]byte(fmt.Sprintf(".intel_syntax noprefix\n"))); err != nil {
+		return err
 	}
 
-	if _, err := tmpfile.Write([]byte(fmt.Sprintf(".intel_syntax noprefix\n%s\n", content))); err != nil {
-		return "", err
+	for _, instr := range instructions {
+		instrFields := strings.Split(instr.instruction, "/*")
+		if len(instrFields) == 1 {
+			instrFields = strings.Split(instr.instruction, ";") // try again with ; separator
+		}
+		content := []byte(instrFields[0] + "\n")
+
+		if _, err := tmpfile.Write([]byte(content)); err != nil {
+			return err
+		}
 	}
+
 	if err := tmpfile.Close(); err != nil {
-		return "", err
+		return err
 	}
 
 	asmFile := tmpfile.Name() + ".asm"
@@ -96,7 +103,7 @@ func gas(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	arg0 := "-o"
 	arg1 := objFile
-	arg2 := fmt.Sprintf("-al=%s", lisFile)
+	arg2 := fmt.Sprintf("-aln=%s", lisFile)
 	arg3 := asmFile
 
 	cmd := exec.Command(app, arg0, arg1, arg2, arg3)
@@ -104,39 +111,64 @@ func gas(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 	if err != nil {
 		asmErrs := strings.Split(string(cmb)[len(asmFile)+1:], ":")
 		asmErr := strings.Join(asmErrs[1:], ":")
-		return "", errors.New(fmt.Sprintf("GAS error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + asmErr)
+		// TODO: Fix proper error reporting
+		lineno := -1
+		instr := "TODO: fix"
+		return errors.New(fmt.Sprintf("GAS error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + asmErr)
 	}
 
-	return toPlan9sGas(lisFile, instr, commentPos, inDefine)
+	opcodes, err := toPlan9sGas(lisFile)
+	if err != nil {
+		return err
+	}
+
+	if len(instructions) != len(opcodes) {
+
+		panic("Unequal length between instructions to be assembled and opcodes returned")
+	}
+
+	for i, opcode := range opcodes {
+		assembled, err := toPlan9s(opcode, instructions[i].instruction, instructions[i].commentPos, instructions[i].inDefine)
+		if err != nil {
+			return err
+		}
+		instructions[i].assembled = assembled
+	}
+
+	return nil
 }
 
-func toPlan9sGas(listFile, instr string, commentPos int, inDefine bool) (string, error) {
+func toPlan9sGas(listFile string) ([][]byte, error) {
 
+	opcodes := make([][]byte, 0, 10)
+  
 	outputLines, err := readLines(listFile, nil)
 	if err != nil {
-		return "", err
+		return opcodes, err
 	}
 
-	var regexpHeader = regexp.MustCompile(`^\s+(\d+)\s+\d+\s+([0-9a-fA-F]+)`)
+	var regexpHeader = regexp.MustCompile(`^\s+(\d+)\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)`)
 	var regexpSequel = regexp.MustCompile(`^\s+(\d+)\s+([0-9a-fA-F]+)`)
 
-	lineno := -1
+	lineno, opcode := -1, make([]byte, 0, 10)
 
-	opcodes := make([]byte, 0, 10)
-
-	for _, line := range outputLines[2 : len(outputLines)-1] {
+	for _, line := range outputLines[:len(outputLines)-1] {
 
 		if match := regexpHeader.FindStringSubmatch(line); len(match) > 2 {
 			l, e := strconv.Atoi(match[1])
 			if e != nil {
 				panic(e)
 			}
+			if lineno != -1 {
+				opcodes = append(opcodes, opcode)
+			}
 			lineno = l
+			opcode = make([]byte, 0, 10)
 			b, e := hex.DecodeString(match[2])
 			if e != nil {
 				panic(e)
 			}
-			opcodes = append(opcodes, b...)
+			opcode = append(opcode, b...)
 		} else if match := regexpSequel.FindStringSubmatch(line); len(match) > 2 {
 			l, e := strconv.Atoi(match[1])
 			if e != nil {
@@ -149,11 +181,13 @@ func toPlan9sGas(listFile, instr string, commentPos int, inDefine bool) (string,
 			if e != nil {
 				panic(e)
 			}
-			opcodes = append(opcodes, b...)
+			opcode = append(opcode, b...)
 		}
 	}
 
-	return toPlan9s(opcodes, instr, commentPos, inDefine)
+	opcodes = append(opcodes, opcode)
+
+	return opcodes, nil
 }
 
 func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (string, error) {
@@ -244,8 +278,18 @@ func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (stri
 // 00000000 <.text>:
 // 0:   c5 ed ef e3             vpxor  ymm4,ymm2,ymm3
 
-// Rename to "as" for YASM support
-func yasm(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func yasm(instructions []Instruction) error {
+	for i, ins := range instructions {
+		assembled, err := yasmSingle(ins.instruction, ins.lineno, ins.commentPos, ins.inDefine)
+		if err != nil {
+			return err
+		}
+		instructions[i].assembled = assembled
+	}
+	return nil
+}
+
+func yasmSingle(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])

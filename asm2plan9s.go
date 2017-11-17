@@ -25,11 +25,24 @@ import (
 	"strings"
 )
 
-// assemble assembles an array to lines into their
-// resulting plan9 equivalent
-func assemble(lines []string) ([]string, error) {
+type Instruction struct {
+	instruction string
+	lineno      int
+	commentPos  int
+	inDefine    bool
+	assembled   string
+}
 
-	var result []string
+type Assembler struct {
+	Prescan      bool
+	Instructions []Instruction
+}
+
+// assemble assembles an array of lines into their
+// resulting plan9 equivalents
+func (a *Assembler) assemble(lines []string) ([]string, error) {
+
+	result := make([]string, 0)
 
 	for lineno, line := range lines {
 		startsWithTab := strings.HasPrefix(line, "\t")
@@ -41,15 +54,27 @@ func assemble(lines []string) ([]string, error) {
 			trimmed := strings.TrimSpace(fields[0])
 			inDefine := len(trimmed) > 0 && string(trimmed[len(trimmed)-1]) == `\`
 
-			sline, err := as(fields[1], lineno, len(fields[0]), inDefine)
-			if err != nil {
-				return result, err
+			// While prescanning collect the instructions
+			if a.Prescan {
+				ins := Instruction{instruction: fields[1], lineno: lineno, commentPos: len(fields[0]), inDefine: inDefine}
+				a.Instructions = append(a.Instructions, ins)
+				continue
+			}
+
+			var ins *Instruction
+			for i := range a.Instructions {
+				if lineno == a.Instructions[i].lineno {
+					ins = &a.Instructions[i]
+				}
+			}
+			if ins == nil {
+				panic("failed to find entry with correct line number")
 			}
 			if startsWithTab {
-				sline = strings.Replace(sline, "    ", "\t", 1)
+				ins.assembled = strings.Replace(ins.assembled, "    ", "\t", 1)
 			}
-			result = append(result, sline)
-		} else {
+			result = append(result, ins.assembled)
+		} else if !a.Prescan {
 			if startsWithTab {
 				line = strings.Replace(line, "    ", "\t", 1)
 			}
@@ -132,6 +157,29 @@ func writeLines(lines []string, path string, out io.Writer) error {
 		fmt.Fprintln(w, line)
 	}
 	return w.Flush()
+}
+
+func assemble(lines []string) (result []string, err error) {
+
+	a := Assembler{Prescan: true}
+
+	_, err = a.assemble(lines)
+	if err != nil {
+		return result, err
+	}
+
+	err = as(a.Instructions)
+	if err != nil {
+		return result, err
+	}
+
+	a.Prescan = false
+	result, err = a.assemble(lines)
+	if err != nil {
+		return result, err
+	}
+
+	return result, nil
 }
 
 func main() {
