@@ -141,7 +141,7 @@ func gas(instructions []Instruction) error {
 func toPlan9sGas(listFile string) ([][]byte, error) {
 
 	opcodes := make([][]byte, 0, 10)
-  
+
 	outputLines, err := readLines(listFile, nil)
 	if err != nil {
 		return opcodes, err
@@ -152,7 +152,7 @@ func toPlan9sGas(listFile string) ([][]byte, error) {
 
 	lineno, opcode := -1, make([]byte, 0, 10)
 
-	for _, line := range outputLines[:len(outputLines)-1] {
+	for _, line := range outputLines {
 
 		if match := regexpHeader.FindStringSubmatch(line); len(match) > 2 {
 			l, e := strconv.Atoi(match[1])
