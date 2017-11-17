@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -82,14 +83,15 @@ func TestLongInstruction(t *testing.T) {
 	}
 }
 
-func TestToPlan9sGas(t *testing.T) {
+func TestToPlan9sGasSingleLineEVEX(t *testing.T) {
 
-	ins := `GAS LISTING /tmp/asm2plan9s337889267.asm                        page 1
-   1                    .intel_syntax noprefix
+	ins := `1                    .intel_syntax noprefix
    2 0000 62D1F548       VPADDQ  ZMM0,ZMM1,ZMM8
    2      D4C0
    3              `
-	out := `    LONG $0x48f5d162; WORD $0xc0d4 // VPADDQ  ZMM0,ZMM1,ZMM8`
+
+	out := make([][]byte, 1, 1)
+	out[0] = []byte{98, 209, 245, 72, 212, 192}
 
 	tmpfile, err := ioutil.TempFile("", "test")
 	if err != nil {
@@ -104,8 +106,44 @@ func TestToPlan9sGas(t *testing.T) {
 	}
 	defer os.Remove(tmpfile.Name()) // clean up
 
-	result, _ := toPlan9sGas(tmpfile.Name(), " VPADDQ  ZMM0,ZMM1,ZMM8", 0, false)
-	if result != out {
-		t.Errorf("expected %s\ngot                     %s", out, result)
+	result, _ := toPlan9sGas(tmpfile.Name())
+	if len(result) != len(out) || !bytes.Equal(result[0], out[0]) {
+		t.Errorf("expected %v\ngot                     %v", out, result)
+	}
+}
+
+func TestToPlan9sGasMultiLinesVEX(t *testing.T) {
+
+	ins := `   1                    .intel_syntax noprefix
+   2 0000 C4C171D4       VPADDQ  XMM0,XMM1,XMM8
+   2      C0
+   3 0005 C4C169D4       VPADDQ  XMM1,XMM2,XMM9
+   3      C9
+   4 000a C4C161D4       VPADDQ  XMM2,XMM3,XMM10
+   4      D2
+   5          `
+
+	out := make([][]byte, 3, 3)
+	out[0] = []byte{196, 193, 113, 212, 192}
+	out[1] = []byte{196, 193, 105, 212, 201}
+	out[2] = []byte{196, 193, 97, 212, 210}
+
+	tmpfile, err := ioutil.TempFile("", "test")
+	if err != nil {
+		return
+	}
+
+	if _, err := tmpfile.Write([]byte(ins)); err != nil {
+		return
+	}
+	if err := tmpfile.Close(); err != nil {
+		return
+	}
+	defer os.Remove(tmpfile.Name()) // clean up
+
+	result, _ := toPlan9sGas(tmpfile.Name())
+	if len(result) != len(out) || !bytes.Equal(result[0], out[0]) ||
+		!bytes.Equal(result[1], out[1]) || !bytes.Equal(result[2], out[2]) {
+		t.Errorf("expected %v\ngot                     %v", out, result)
 	}
 }
