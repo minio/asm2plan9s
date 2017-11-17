@@ -141,7 +141,7 @@ func gas(instructions []Instruction) error {
 func toPlan9sGas(listFile string) ([][]byte, error) {
 
 	opcodes := make([][]byte, 0, 10)
-
+  
 	outputLines, err := readLines(listFile, nil)
 	if err != nil {
 		return opcodes, err
