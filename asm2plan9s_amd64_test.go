@@ -28,7 +28,7 @@ func TestInstruction(t *testing.T) {
 	ins := "                                 // VPADDQ  XMM0,XMM1,XMM8"
 	out := "    LONG $0xd471c1c4; BYTE $0xc0 // VPADDQ  XMM0,XMM1,XMM8"
 
-	result, _ := assemble([]string{ins})
+	result, _ := assemble([]string{ins}, false)
 
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
@@ -40,7 +40,7 @@ func TestInstructionPresent(t *testing.T) {
 	ins := "    LONG $0xd471c1c4; BYTE $0xc0 // VPADDQ  XMM0,XMM1,XMM8"
 	out := "    LONG $0xd471c1c4; BYTE $0xc0 // VPADDQ  XMM0,XMM1,XMM8"
 
-	result, _ := assemble([]string{ins})
+	result, _ := assemble([]string{ins}, false)
 
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
@@ -52,7 +52,7 @@ func TestInstructionWrongBytes(t *testing.T) {
 	ins := "    LONG $0x003377bb; BYTE $0xff // VPADDQ  XMM0,XMM1,XMM8"
 	out := "    LONG $0xd471c1c4; BYTE $0xc0 // VPADDQ  XMM0,XMM1,XMM8"
 
-	result, _ := assemble([]string{ins})
+	result, _ := assemble([]string{ins}, false)
 
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
@@ -64,10 +64,44 @@ func TestInstructionInDefine(t *testing.T) {
 	ins := `    LONG $0x00000000; BYTE $0xdd                               \ // VPADDQ  XMM0,XMM1,XMM8`
 	out := `    LONG $0xd471c1c4; BYTE $0xc0                               \ // VPADDQ  XMM0,XMM1,XMM8`
 
-	result, _ := assemble([]string{ins})
+	result, _ := assemble([]string{ins}, false)
 
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])
+	}
+}
+
+func TestCompactMultipleInstructions(t *testing.T) {
+
+	ins1 := "                                 // VPADDQ  XMM0,XMM1,XMM8"
+	ins2 := "                                 // VPADDQ  XMM1,XMM2,XMM3"
+	ins3 := "                                 // VPADDQ  XMM4,XMM5,XMM6"
+	ins4 := "                                 // VPADDQ  XMM4,XMM5,XMM6"
+	ins5 := "                                 // VPADDQ  XMM4,XMM5,XMM6"
+	ins6 := "                                 // VPADDQ  XMM4,XMM5,XMM6"
+	ins7 := "                                 // VPADDQ  XMM4,XMM5,XMM6"
+	ins8 := "    MOVQ AX, BX"
+	ins9 := "                                 // VPADDQ  XMM0,XMM1,XMM8"
+	ins10 := "                                 // VPADDQ  XMM1,XMM2,XMM3"
+	ins11 := "    MOVQ BX, CX"
+	ins12 := "                                 // VPADDQ  XMM4,XMM5,XMM6"
+	ins13 := "                                 // VPADDQ  XMM5,XMM6,XMM0"
+	out0 := "    QUAD $0xd4e9c5c0d471c1c4; QUAD $0xd4d1c5e6d4d1c5cb; QUAD $0xd4d1c5e6d4d1c5e6; QUAD $0x71c1c4e6d4d1c5e6; WORD $0xc0d4"
+	out1 := "    MOVQ AX, BX"
+	out2 := "    QUAD $0xe6d4d1c5cbd4e9c5"
+	out3 := "    MOVQ BX, CX"
+	out4 := "    LONG $0xe8d4c9c5"
+	out := make([]string, 5)
+	out[0], out[1], out[2], out[3], out[4] = out0, out1, out2, out3, out4
+
+	result, _ := assemble([]string{ins1, ins2, ins3, ins4, ins5, ins6, ins7, ins8, ins9, ins10, ins11, ins12, ins13}, true)
+	if len(result) != len(out) {
+		t.Errorf("expected length %d\ngot             length %d", len(out), len(result))
+	}
+	for i := range result {
+		if result[i] != out[i] {
+			t.Errorf("expected %s\ngot                     %s", out[i], result[i])
+		}
 	}
 }
 
@@ -76,7 +110,7 @@ func TestLongInstruction(t *testing.T) {
 	ins := "                                   // VPALIGNR XMM8, XMM12, XMM12, 0x8"
 	out := "    LONG $0x0f1943c4; WORD $0x08c4 // VPALIGNR XMM8, XMM12, XMM12, 0x8"
 
-	result, _ := assemble([]string{ins})
+	result, _ := assemble([]string{ins}, false)
 
 	if result[0] != out {
 		t.Errorf("expected %s\ngot                     %s", out, result[0])

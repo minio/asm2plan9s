@@ -31,11 +31,13 @@ type Instruction struct {
 	commentPos  int
 	inDefine    bool
 	assembled   string
+	opcodes     []byte
 }
 
 type Assembler struct {
 	Prescan      bool
 	Instructions []Instruction
+	Compact      bool
 }
 
 // assemble assembles an array of lines into their
@@ -68,6 +70,9 @@ func (a *Assembler) assemble(lines []string) ([]string, error) {
 				}
 			}
 			if ins == nil {
+				if a.Compact {
+					continue
+				}
 				panic("failed to find entry with correct line number")
 			}
 			if startsWithTab {
@@ -121,6 +126,34 @@ func startsAfterLongWordByteSequence(prefix string) bool {
 	return false
 }
 
+// combineLines shortens the output by combining consecutive lines into a larger list of opcodes
+func (a *Assembler) combineLines() {
+	startIndex, startLine, opcodes := -1, -1, make([]byte, 0, 1024)
+	combined := make([]Instruction, 0, 100)
+	for i, ins := range a.Instructions {
+		if startIndex == -1 {
+			startIndex, startLine = i, ins.lineno
+		}
+		opcodes = append(opcodes, ins.opcodes...)
+		if ins.lineno != startLine+(i-startIndex) { // we have found a non-consecutive line
+			combiAssem, _ := toPlan9s(opcodes, "", 0, false)
+			combiIns := Instruction{assembled: combiAssem, lineno: startLine, inDefine: false}
+
+			combined = append(combined, combiIns)
+			opcodes = opcodes[:0]
+			startIndex = -1
+		}
+	}
+	if len(opcodes) > 0 {
+		combiAssem, _ := toPlan9s(opcodes, "", 0, false)
+		ins := Instruction{assembled: combiAssem, lineno: startLine, inDefine: false}
+
+		combined = append(combined, ins)
+	}
+
+	a.Instructions = combined
+}
+
 // readLines reads a whole file into memory
 // and returns a slice of its lines.
 func readLines(path string, in io.Reader) ([]string, error) {
@@ -159,9 +192,10 @@ func writeLines(lines []string, path string, out io.Writer) error {
 	return w.Flush()
 }
 
-func assemble(lines []string) (result []string, err error) {
+func assemble(lines []string, compact bool) (result []string, err error) {
 
-	a := Assembler{Prescan: true}
+	// TODO: Make compaction configurable
+	a := Assembler{Prescan: true, Compact: compact}
 
 	_, err = a.assemble(lines)
 	if err != nil {
@@ -171,6 +205,10 @@ func assemble(lines []string) (result []string, err error) {
 	err = as(a.Instructions)
 	if err != nil {
 		return result, err
+	}
+
+	if a.Compact {
+		a.combineLines()
 	}
 
 	a.Prescan = false
@@ -201,7 +239,7 @@ func main() {
 		log.Fatalf("readLines: %s", err)
 	}
 
-	result, err := assemble(lines)
+	result, err := assemble(lines, false)
 	if err != nil {
 		fmt.Print(err)
 		os.Exit(-1)

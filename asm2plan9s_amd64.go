@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // as: assemble instruction by either invoking yasm or gas
@@ -123,7 +124,6 @@ func gas(instructions []Instruction) error {
 	}
 
 	if len(instructions) != len(opcodes) {
-
 		panic("Unequal length between instructions to be assembled and opcodes returned")
 	}
 
@@ -133,6 +133,8 @@ func gas(instructions []Instruction) error {
 			return err
 		}
 		instructions[i].assembled = assembled
+		instructions[i].opcodes = make([]byte, len(opcode))
+		copy(instructions[i].opcodes, opcode)
 	}
 
 	return nil
@@ -193,7 +195,16 @@ func toPlan9sGas(listFile string) ([][]byte, error) {
 func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (string, error) {
 	sline := "    "
 	i := 0
-	// First do LONGs (as many as needed)
+	// First do QUADs (as many as needed)
+	for ; len(opcodes) >= 8; i++ {
+		if i != 0 {
+			sline += "; "
+		}
+		sline += fmt.Sprintf("QUAD $0x%02x%02x%02x%02x%02x%02x%02x%02x", opcodes[7], opcodes[6], opcodes[5], opcodes[4], opcodes[3], opcodes[2], opcodes[1], opcodes[0])
+
+		opcodes = opcodes[8:]
+	}
+	// Then do LONGs (as many as needed)
 	for ; len(opcodes) >= 4; i++ {
 		if i != 0 {
 			sline += "; "
@@ -245,9 +256,11 @@ func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (stri
 		}
 	}
 
-	sline += "//" + instr
+	if instr != "" {
+		sline += "//" + instr
+	}
 
-	return sline, nil
+	return strings.TrimRightFunc(sline, unicode.IsSpace), nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -280,29 +293,31 @@ func toPlan9s(opcodes []byte, instr string, commentPos int, inDefine bool) (stri
 
 func yasm(instructions []Instruction) error {
 	for i, ins := range instructions {
-		assembled, err := yasmSingle(ins.instruction, ins.lineno, ins.commentPos, ins.inDefine)
+		assembled, opcodes, err := yasmSingle(ins.instruction, ins.lineno, ins.commentPos, ins.inDefine)
 		if err != nil {
 			return err
 		}
 		instructions[i].assembled = assembled
+		instructions[i].opcodes = make([]byte, len(opcodes))
+		copy(instructions[i].opcodes[:], opcodes)
 	}
 	return nil
 }
 
-func yasmSingle(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func yasmSingle(instr string, lineno, commentPos int, inDefine bool) (string, []byte, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte("[bits 64]\n" + instrFields[0])
 	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if _, err := tmpfile.Write(content); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := tmpfile.Close(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	asmFile := tmpfile.Name() + ".asm"
@@ -322,21 +337,22 @@ func yasmSingle(instr string, lineno, commentPos int, inDefine bool) (string, er
 	cmb, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(string(cmb)) == 0 { // command invocation failed
-			return "", errors.New("exec error: YASM not installed?")
+			return "", nil, errors.New("exec error: YASM not installed?")
 		}
 		yasmErrs := strings.Split(string(cmb)[len(asmFile)+1:], ":")
 		yasmErr := strings.Join(yasmErrs[1:], ":")
-		return "", errors.New(fmt.Sprintf("YASM error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
+		return "", nil, errors.New(fmt.Sprintf("YASM error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + yasmErr)
 	}
 
 	return toPlan9sYasm(objFile, instr, commentPos, inDefine)
 }
 
-func toPlan9sYasm(objFile, instr string, commentPos int, inDefine bool) (string, error) {
+func toPlan9sYasm(objFile, instr string, commentPos int, inDefine bool) (string, []byte, error) {
 	opcodes, err := ioutil.ReadFile(objFile)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
-	return toPlan9s(opcodes, instr, commentPos, inDefine)
+	s, err := toPlan9s(opcodes, instr, commentPos, inDefine)
+	return s, opcodes, err
 }
