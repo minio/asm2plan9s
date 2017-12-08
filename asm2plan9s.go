@@ -134,15 +134,15 @@ func (a *Assembler) combineLines() {
 		if startIndex == -1 {
 			startIndex, startLine = i, ins.lineno
 		}
-		opcodes = append(opcodes, ins.opcodes...)
 		if ins.lineno != startLine+(i-startIndex) { // we have found a non-consecutive line
 			combiAssem, _ := toPlan9s(opcodes, "", 0, false)
 			combiIns := Instruction{assembled: combiAssem, lineno: startLine, inDefine: false}
 
 			combined = append(combined, combiIns)
 			opcodes = opcodes[:0]
-			startIndex = -1
+			startIndex, startLine = i, ins.lineno
 		}
+		opcodes = append(opcodes, ins.opcodes...)
 	}
 	if len(opcodes) > 0 {
 		combiAssem, _ := toPlan9s(opcodes, "", 0, false)
