@@ -22,23 +22,48 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
-func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
+func as(instructions []Instruction) error {
+
+	// First to yasm (will return error when not installed)
+	e := yasm(instructions)
+	if e == nil {
+		return e
+	}
+	// Try gas if yasm not installed
+	return gas(instructions)
+}
+
+func gas(instructions []Instruction) error {
+	for i, ins := range instructions {
+		assembled, opcodes, err := asSingle(ins.instruction, ins.lineno, ins.commentPos, ins.inDefine)
+		if err != nil {
+			return err
+		}
+		instructions[i].assembled = assembled
+		instructions[i].opcodes = make([]byte, len(opcodes))
+		copy(instructions[i].opcodes[:], opcodes)
+	}
+	return nil
+}
+
+func asSingle(instr string, lineno, commentPos int, inDefine bool) (string, []byte, error) {
 
 	instrFields := strings.Split(instr, "/*")
 	content := []byte(instrFields[0] + "\n")
 	tmpfile, err := ioutil.TempFile("", "asm2plan9s")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if _, err := tmpfile.Write(content); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := tmpfile.Close(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	asmFile := tmpfile.Name() + ".asm"
@@ -64,34 +89,34 @@ func as(instr string, lineno, commentPos int, inDefine bool) (string, error) {
 	if err != nil {
 		asmErrs := strings.Split(string(cmb)[len(asmFile)+1:], ":")
 		asmErr := strings.Join(asmErrs[1:], ":")
-		return "", errors.New(fmt.Sprintf("GAS error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + asmErr)
+		return "", nil, errors.New(fmt.Sprintf("GAS error (line %d for '%s'):", lineno+1, strings.TrimSpace(instr)) + asmErr)
 	}
 
 	return toPlan9sArm(lisFile, instr)
 }
 
-func toPlan9sArm(listFile, instr string) (string, error) {
+func toPlan9sArm(listFile, instr string) (string, []byte, error) {
 
-	var regexp = regexp.MustCompile(`^\s+\d+\s+\d+\s+([0-9a-fA-F]+)`)
+	var r = regexp.MustCompile(`^\s+\d+\s+\d+\s+([0-9a-fA-F]+)`)
 
-	outputLines, err := readLines(listFile)
+	outputLines, err := readLines(listFile, nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	lastLine := outputLines[len(outputLines)-1]
 
 	sline := "    "
 
-	if match := regexp.FindStringSubmatch(lastLine); len(match) > 1 {
+	if match := r.FindStringSubmatch(lastLine); len(match) > 1 {
 		sline += fmt.Sprintf("WORD $0x%s%s%s%s", strings.ToLower(match[1][6:8]), strings.ToLower(match[1][4:6]), strings.ToLower(match[1][2:4]), strings.ToLower(match[1][0:2]))
 	} else {
-		return "", errors.New("Regexp failed")
+		return "", nil, errors.New("regexp failed")
 	}
 
 	sline += " //" + instr
 
 	// fmt.Println(sline)
 
-	return sline, nil
+	return sline, nil, nil
 }
